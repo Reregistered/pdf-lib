@@ -1,5 +1,5 @@
 {
-  "name": "@pdfme/pdf-lib",
+  "name": "@registered/pdf-lib",
   "version": "1.18.3",
   "description": "Create and modify PDF files with JavaScript",
   "author": "Andrew Dillon <andrew.dillon.j@gmail.com>",
