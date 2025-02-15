@@ -219,7 +219,7 @@ class PDFObjectParser extends BaseParser {
     this.bytes.assertNext(CharCodes.GreaterThan);
     this.bytes.assertNext(CharCodes.GreaterThan);
 
-    const Type = dict.get(PDFName.of('Type'));
+    const Type = dict.get(PDFName.of('Type')) ?? this.inferType(dict);
 
     if (Type === PDFName.of('Catalog')) {
       return PDFCatalog.fromMapWithContext(dict, this.context);
@@ -230,6 +230,19 @@ class PDFObjectParser extends BaseParser {
     } else {
       return PDFDict.fromMapWithContext(dict, this.context);
     }
+  }
+
+  // If we're here its because there was no Type key
+  // Infer the type based on the structure of the dict
+  private inferType(dict: DictMap): PDFName | undefined {
+    // Catalog is critical to successful parsing
+    // if there's pages, lets assume its a catalog
+    const Pages = dict.get(PDFName.of('Pages'));
+    if (Pages !== undefined) {
+      return PDFName.of('Catalog');
+    }
+
+    return undefined;
   }
 
   protected parseDictOrStream(ref?: PDFRef): PDFDict | PDFStream {

@@ -10,6 +10,15 @@
       "name": "Launch Program",
       "program": "${workspaceFolder}/scratchpad/build/scratchpad/index.js",
       "outFiles": ["${workspaceFolder}/**/*.js"]
+    },
+    {
+      "name": "TS File",
+      "type": "node",
+      "request": "launch",
+      "args": ["${file}"],
+      "runtimeArgs": ["--nolazy", "-r", "ts-node/register"],
+      "sourceMaps": true,
+      "env": {}
     }
   ]
 }
