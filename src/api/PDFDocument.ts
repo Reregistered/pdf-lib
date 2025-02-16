@@ -151,28 +151,34 @@ export default class PDFDocument {
       throwOnInvalidObject,
       capNumbers,
     ).parseDocument();
-    if (
-      !!context.lookup(context.trailerInfo.Encrypt) &&
-      password !== undefined
-    ) {
-      // Decrypt
-      const fileIds = context.lookup(context.trailerInfo.ID, PDFArray);
-      const encryptDict = context.lookup(context.trailerInfo.Encrypt, PDFDict);
-      const decryptedContext = await PDFParser.forBytesWithOptions(
-        bytes,
-        parseSpeed,
-        throwOnInvalidObject,
-        capNumbers,
-        new CipherTransformFactory(
-          encryptDict,
-          (fileIds.get(0) as PDFHexString).asBytes(),
-          password,
-        ),
-      ).parseDocument();
-      return new PDFDocument(decryptedContext, true, updateMetadata);
-    } else {
-      return new PDFDocument(context, ignoreEncryption, updateMetadata);
+
+    if (!!context.lookup(context.trailerInfo.Encrypt)) {
+      try {
+        const fileIds = context.lookup(context.trailerInfo.ID, PDFArray);
+        const encryptDict = context.lookup(
+          context.trailerInfo.Encrypt,
+          PDFDict,
+        );
+
+        const decryptedContext = await PDFParser.forBytesWithOptions(
+          bytes,
+          parseSpeed,
+          throwOnInvalidObject,
+          capNumbers,
+          new CipherTransformFactory(
+            encryptDict,
+            (fileIds.get(0) as PDFHexString).asBytes(),
+            password,
+          ),
+        ).parseDocument();
+        return new PDFDocument(decryptedContext, true, updateMetadata);
+      } catch (error) {
+        // If the password is incorrect ( or needed), the document will
+        // not be decrypted. Don't throw here, fall through and let the
+        // next load either throw orproduce blank pages.
+      }
     }
+    return new PDFDocument(context, ignoreEncryption, updateMetadata);
   }
 
   /**
