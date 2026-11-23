@@ -155,6 +155,29 @@ class PDFPageTree extends PDFDict {
     if (Parent) Parent.ascend(visitor);
   }
 
+  /**
+   * Points the `/Parent` of every descendant at the node that lists it in
+   * `/Kids`. Malformed files can link to the wrong object (a stream, an
+   * untyped dict, the page itself), which breaks `ascend`, so inherited
+   * attributes can no longer be resolved. Links that are already correct are
+   * left untouched.
+   */
+  repairParentLinks(selfRef: PDFRef): void {
+    const Kids = this.Kids();
+    for (let idx = 0, len = Kids.size(); idx < len; idx++) {
+      const kidRef = Kids.get(idx);
+      if (!(kidRef instanceof PDFRef)) continue;
+      const kid = this.context.lookup(kidRef);
+      if (!(kid instanceof PDFPageTree) && !(kid instanceof PDFPageLeaf)) {
+        continue;
+      }
+      if (kid.get(PDFName.of('Parent')) !== selfRef) {
+        kid.set(PDFName.of('Parent'), selfRef);
+      }
+      if (kid instanceof PDFPageTree) kid.repairParentLinks(kidRef);
+    }
+  }
+
   /** Performs a Post-Order traversal of this page tree */
   traverse(visitor: (node: TreeNode, ref: PDFRef) => any): void {
     const Kids = this.Kids();

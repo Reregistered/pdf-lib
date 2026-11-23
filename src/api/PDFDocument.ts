@@ -211,6 +211,7 @@ export default class PDFDocument {
 
   private fontkit?: Fontkit;
   private pageCount: number | undefined;
+  private pageTreeParentLinksRepaired = false;
   private readonly pageCache: Cache<PDFPage[]>;
   private readonly pageMap: Map<PDFPageLeaf, PDFPage>;
   private readonly formCache: Cache<PDFForm>;
@@ -1397,7 +1398,19 @@ export default class PDFDocument {
     return this.fontkit;
   }
 
+  private repairPageTreeParentLinks(): void {
+    const pagesRef = this.catalog.get(PDFName.of('Pages'));
+    this.catalog.Pages().delete(PDFName.of('Parent'));
+    if (pagesRef instanceof PDFRef) {
+      this.catalog.Pages().repairParentLinks(pagesRef);
+    }
+  }
+
   private computePages = (): PDFPage[] => {
+    if (!this.pageTreeParentLinksRepaired) {
+      this.repairPageTreeParentLinks();
+      this.pageTreeParentLinksRepaired = true;
+    }
     const pages: PDFPage[] = [];
     this.catalog.Pages().traverse((node, ref) => {
       if (node instanceof PDFPageLeaf) {
