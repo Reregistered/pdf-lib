@@ -9,6 +9,8 @@ import {
   PDFHexString,
   PDFName,
   PDFPage,
+  PDFPageTree,
+  PDFRef,
   Duplex,
   NonFullScreenPageMode,
   PrintScaling,
@@ -571,6 +573,114 @@ describe(`PDFDocument`, () => {
       expect(pdfDoc.getSubject()).toBe(srcDoc.getSubject());
       expect(pdfDoc.getTitle()).toBe(srcDoc.getTitle());
       expect(pdfDoc.defaultWordBreaks).toEqual(srcDoc.defaultWordBreaks);
+    });
+  });
+
+  describe(`malformed page tree /Parent links`, () => {
+    const brokenParents: Array<{
+      name: string;
+      breakParent: (doc: PDFDocument, page: PDFPage) => PDFRef;
+    }> = [
+      {
+        name: `a stream`,
+        breakParent: (doc) =>
+          doc.context.register(doc.context.stream('not a page tree')),
+      },
+      {
+        name: `a dict without /Type /Pages`,
+        breakParent: (doc) =>
+          doc.context.register(doc.context.obj({ Count: 0 })),
+      },
+      { name: `the page itself`, breakParent: (_doc, page) => page.ref },
+    ];
+
+    const buildPdf = async (
+      breakParent: (doc: PDFDocument, page: PDFPage) => PDFRef,
+    ) => {
+      const doc = await PDFDocument.create({ updateMetadata: false });
+      doc.addPage();
+      doc.addPage();
+
+      const root = doc.catalog.Pages();
+      root.set(PDFName.MediaBox, doc.context.obj([0, 0, 200, 300]));
+      root.set(PDFName.of('Rotate'), doc.context.obj(90));
+      doc.getPages().forEach((page) => page.node.delete(PDFName.MediaBox));
+
+      const [firstPage] = doc.getPages();
+      firstPage.node.set(PDFName.Parent, breakParent(doc, firstPage));
+
+      return PDFDocument.load(await doc.save({ useObjectStreams: false }));
+    };
+
+    it.each(brokenParents)(
+      `copies a page whose /Parent points at $name`,
+      async ({ breakParent }) => {
+        const src = await buildPdf(breakParent);
+        const dest = await PDFDocument.create();
+
+        const copied = await dest.copyPages(src, [0, 1]);
+
+        copied.forEach((page) => {
+          expect(page.getSize()).toEqual({ width: 200, height: 300 });
+          expect(page.getRotation().angle).toBe(90);
+        });
+      },
+    );
+
+    it(`repairs a broken /Parent on an intermediate page tree node`, async () => {
+      const doc = await PDFDocument.create({ updateMetadata: false });
+      doc.addPage();
+      doc.addPage();
+
+      const rootRef = doc.catalog.get(PDFName.of('Pages')) as PDFRef;
+      const root = doc.catalog.Pages();
+      root.set(PDFName.MediaBox, doc.context.obj([0, 0, 200, 300]));
+      doc.getPages().forEach((page) => page.node.delete(PDFName.MediaBox));
+
+      const inner = PDFPageTree.withContext(doc.context, rootRef);
+      const innerRef = doc.context.register(inner);
+      doc.getPages().forEach((page) => {
+        inner.Kids().push(page.ref);
+        page.node.set(PDFName.Parent, innerRef);
+      });
+      inner.set(PDFName.of('Count'), doc.context.obj(2));
+      root.set(PDFName.of('Kids'), doc.context.obj([innerRef]));
+      inner.set(
+        PDFName.Parent,
+        doc.context.register(doc.context.stream('not a page tree')),
+      );
+
+      const src = await PDFDocument.load(await doc.save());
+      const copied = await (await PDFDocument.create()).copyPages(src, [1]);
+
+      expect(copied[0].getSize()).toEqual({ width: 200, height: 300 });
+    });
+
+    it(`points every node's /Parent at the node listing it in /Kids`, async () => {
+      const src = await buildPdf((doc) =>
+        doc.context.register(doc.context.stream('not a page tree')),
+      );
+      const rootRef = src.catalog.get(PDFName.of('Pages'));
+
+      const pages = src.getPages();
+
+      expect(pages[0].node.get(PDFName.Parent)).toBe(rootRef);
+      expect(pages[1].node.get(PDFName.Parent)).toBe(rootRef);
+      expect(src.catalog.Pages().has(PDFName.Parent)).toBe(false);
+    });
+
+    it(`does not rewrite /Parent on a well-formed page tree`, async () => {
+      const doc = await PDFDocument.load(unencryptedPdfBytes);
+      const setSpy = jest.spyOn(PDFDict.prototype, 'set');
+
+      expect(doc.getPages().length).toBeGreaterThan(0);
+
+      const parentWrites = setSpy.mock.calls.filter(
+        ([key]) => key === PDFName.of('Parent'),
+      );
+      setSpy.mockRestore();
+      expect(parentWrites).toHaveLength(0);
+      expect(doc.catalog.Pages().has(PDFName.Parent)).toBe(false);
     });
   });
 });
